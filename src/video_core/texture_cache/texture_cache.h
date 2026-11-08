@@ -2892,8 +2892,9 @@ ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, DA
         Image& overlap = slot_images[overlap_id];
         // Remapped images no longer describe the current guest memory. Discard their GPU
         // contents rather than downloading them through the replacement mapping.
+        static const bool test_old_unbacked = std::getenv("EDEN_NX2_TEST_OLD_UNBACKED") != nullptr;
         if (True(overlap.flags & ImageFlagBits::GpuModified) &&
-            False(overlap.flags & ImageFlagBits::Remapped)) {
+            (False(overlap.flags & ImageFlagBits::Remapped) || test_old_unbacked)) {
             UNIMPLEMENTED();
         }
         if (True(overlap.flags & ImageFlagBits::Tracked)) {

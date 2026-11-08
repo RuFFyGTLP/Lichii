@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <cstdlib>
 #include <array>
 #include <bit>
 #include <limits>
@@ -264,7 +265,11 @@ VkResult MemoryAllocator::AllocateImage(const VkImageCreateInfo &ci, bool dedica
         relaxed.flags &= ~VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
         result = vmaCreateImage(allocator, &ci, &relaxed, &handle, &allocation, &alloc_info);
     }
-    if (result == VK_ERROR_OUT_OF_DEVICE_MEMORY && !huge) {
+    // Test only (EGLA-88): EDEN_NX2_TEST_NO_HOST_IMAGES=1 skips the host placement, as on the
+    // 8 GB AMD card where it failed; EDEN_NX2_TEST_OLD_UNBACKED=1 restores the old fallback.
+    static const bool test_no_host = std::getenv("EDEN_NX2_TEST_NO_HOST_IMAGES") != nullptr;
+    static const bool test_old_unbacked = std::getenv("EDEN_NX2_TEST_OLD_UNBACKED") != nullptr;
+    if (result == VK_ERROR_OUT_OF_DEVICE_MEMORY && !huge && !test_no_host) {
         // Still out of device memory: a real image in host memory (slow, but valid) beats one
         // with nothing bound, which AMD's drivers do not survive being sampled.
         VmaAllocationCreateInfo host = alloc_ci;
@@ -285,7 +290,7 @@ VkResult MemoryAllocator::AllocateImage(const VkImageCreateInfo &ci, bool dedica
         pressure_events.fetch_add(1, std::memory_order_relaxed);
     }
     if (result == VK_ERROR_OUT_OF_DEVICE_MEMORY && ci.imageType != VK_IMAGE_TYPE_1D &&
-        UsesUnbackedFallback(texels, may_fail)) {
+        (UsesUnbackedFallback(texels, may_fail) || test_old_unbacked)) {
         // Too big to back at all, e.g. title 1's sparse virtual texture arrays (8192x8192,
         // 68 layers, ~23 GB): on the console only resident tiles have memory. Use an image with
         // nothing bound, so views and copies still work, instead of aborting. A smaller image
